@@ -1,3 +1,6 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
+
 import  tensorflow as tf
 import  numpy as np
 import  sys
@@ -7,8 +10,8 @@ dry_run = 50
 num_iter = 100
 count = 20     # number of iterations
 #cuda = False   # whether GPU is used or not
-train = True  # True: test training performance; False: test forward performance only
-daily = True
+train = True # True: test training performance; False: test forward performance only
+daily = False
 
 #if 'cuda' in sys.argv:
 #    cuda = True
@@ -18,9 +21,13 @@ if 'daily' in sys.argv:
     daily = True
 
 if daily:
-    sizes = [[64,50,500,500],
-         [128,25,4096,4096]
-        ]
+   # sizes = [[64,50,500,500],
+   #      [128,25,4096,4096]
+   #     ]
+    sizes = [[64,15,500,500],
+            [64,20,500,500]
+            ]
+
     print("daily test")
 else:
     sizes = [[64,15,500,500],
@@ -48,51 +55,55 @@ else:
          [64,25,4096,4096],
          [128,25,4096,4096]
         ]
+with tf.device("/gpu:0"):
+    for idx in range(len(sizes)):
+        size = sizes[idx]
+        N = size[0]    # batch size
+        T = size[1]    # sentence length
+        D = size[2]    # embedding size
+        H = size[3]    # hidden size
+
+       # X = np.random.randn(N,T,D)
+       # target = np.random.randn(N,T,H)
 
 
-for idx in range(len(sizes)):
-    size = sizes[idx]
-    N = size[0]    # batch size
-    T = size[1]    # sentence length
-    D = size[2]    # embedding size
-    H = size[3]    # hidden size
+        X = tf.random_normal((N,T,D))
+        target = tf.random_normal((N,T,D))
 
-    X = np.random.randn(N,T,D)
-    target = np.random.randn(N,T,H)
+        cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=H, state_is_tuple=True)
 
-    cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=H, state_is_tuple=True)
 
-    init_state = cell.zero_state(batch_size=N, dtype=tf.float64)
+        init_state = cell.zero_state(batch_size=N, dtype=tf.float32)
 
-    rnn_name = "rnn" + str(idx)
+        rnn_name = "rnn" + str(idx)
 
-    with tf.variable_scope(rnn_name, reuse=None):
-        outputs, last_states = tf.nn.dynamic_rnn(
-            cell=cell,
-            dtype=tf.float64,
-            initial_state=init_state,
-            inputs=X,
-        )
+        with tf.variable_scope(rnn_name, reuse=None):
+            outputs, last_states = tf.nn.dynamic_rnn(
+                cell=cell,
+                dtype=tf.float32,
+                initial_state=init_state,
+                inputs=X,
+            )
 
-    loss = tf.nn.l2_loss(outputs - target)
+        loss = tf.nn.l2_loss(outputs - target)
 
-    optim = tf.train.GradientDescentOptimizer(0.01)
-    train_op = optim.minimize(loss)
+        optim = tf.train.GradientDescentOptimizer(0.01)
+        train_op = optim.minimize(loss)
 
-    sess = tf.Session()
-    sess.run(tf.initialize_all_variables())
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
 
-    for j in range(dry_run + num_iter):
-        if j == dry_run:
-            start = time.time()
+        for j in range(dry_run + num_iter):
+            if j == dry_run:
+                start = time.time()
 
-        if train:
-            sess.run(train_op)
-        else:
-            sess.run(outputs)
+            if train:
+                sess.run(train_op)
+            else:
+                sess.run(outputs)
 
-    dura = (time.time() - start) / num_iter  # time of ONE iteration
-    gflops = T * 4 * (N * H * D * 2 + N * H * H * 2) / 1e9
-    GFLOPS = gflops / dura  # giga floating-point operations per second
-    SPS = N / dura  # number of processed sentences per second
-    print("size = %s, duration = %.4f, gflops = %.4f, GFLOPS = %.4f, SPS = %.4f" % (size, dura, gflops, GFLOPS, SPS))
+        dura = (time.time() - start) / num_iter  # time of ONE iteration
+        gflops = T * 4 * (N * H * D * 2 + N * H * H * 2) / 1e9
+        GFLOPS = gflops / dura  # giga floating-point operations per second
+        SPS = N / dura  # number of processed sentences per second
+        print("size = %s, duration = %.4f, gflops = %.4f, GFLOPS = %.4f, SPS = %.4f" % (size, dura, gflops, GFLOPS, SPS))
